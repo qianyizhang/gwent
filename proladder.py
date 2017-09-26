@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Sep 26 12:52:18 2017
-
-@author: z003n2pm
-
 proladder crawler
 """
-
+##TODO: add writer/loader
 from bs4 import BeautifulSoup
 import urllib
 from collections import defaultdict
@@ -28,7 +24,7 @@ def str2int(s):
 
 class pro_player(object):
     classes = ["nilfgaard", "scoiatael", "northernkingdom", "skellige", "monster"]
-    class_colors = [(0.9, 0, 0, 1), (0.1, 0.3, 0.9, 1), (0.3, 0.3, 0.7, 1), (0.1, 0.3, 0.1, 1), (0.1, 0.9, 0.1, 1)]
+    class_colors = [(0.1, 0.1, 0.1, 1), (0.1, 0.8, 0.1, 1), (0.1, 0.3, 0.9, 1), (0.3, 0.3, 0.7, 1), (0.9, 0, 0, 1)]
     def __init__(self, html_element):
         divs = html_element.find_all("div")
         self.rank = int(divs[0].text)
@@ -60,10 +56,12 @@ class pro_player(object):
             matches += [self[c]['matches']]
             scores += [self[c]['best']]
         best_scores =  sum(sorted(scores)[1:])
-#        print(best_scores)
         total_matches = sum(matches)
-#        print(total_matches)
-        return (self.matches == total_matches) and (self.score == best_scores)
+        if self.matches != total_matches:
+            print("#{} {}: matches {} != total matches {}".format(self.rank, self.id, self.matches, total_matches))
+        if self.score != best_scores:
+            print("#{} {}: score {} != best scores {}".format(self.rank, self.id, self.score, best_scores))
+        return (self.matches == total_matches) and (self.score <= best_scores)
     
     def __getitem__(self, key):
         return getattr(self, key, None)
@@ -96,7 +94,7 @@ class player_db(object):
                 self.player_list.append(player)
                 self.count += 1
         else:
-            print("{} is not a valid pro player".format(player))
+            print("{} is not a valid pro player".format(player.rank))
             
     def __iadd__(self, player):
         self.append(player)
@@ -119,12 +117,12 @@ class player_db(object):
                 stats['complete'] += 1
                 stats['mean_score_c'] += class_dict['best']
                 stats['mean_score_a'] += class_dict['best']
-                stats['mean_score_t'] += class_dict['current'] * class_dict['matches'] / 100
+                stats['mean_score_t'] += class_dict['current'] * class_dict['matches']
             else:
                 if class_dict['matches'] > 0:  
                     stats['incomplete'] += 1
-                    stats['mean_score_a'] += class_dict['best']*100/class_dict['matches']
-                    stats['mean_score_t'] += class_dict['current']
+                    stats['mean_score_a'] += class_dict['best'] * 100 / class_dict['matches']
+                    stats['mean_score_t'] += class_dict['current'] * 100
         if stats['complete'] > 0:
             stats['mean_score_c'] /= stats['complete']
         else:
@@ -148,24 +146,38 @@ class player_db(object):
             
         return all_stats
 
-def plot(stats, radii = 'mean_score_a',  width = 'total_matches'):
+def plot(stats, radii = 'mean_score_c',  width = 'total_matches', order = None, offset = 1150):
     radius_list = np.array([stats[c][radii] for c in pro_player.classes])
     width_list = np.array([stats[c][width] for c in pro_player.classes])
-    
+    if order == 'radii':
+        order = np.argsort(radius_list)
+    elif order == 'width':
+        order = np.argsort(width_list)
+    else: 
+        if isinstance(order, (list, np.ndarray, set)) and \
+            set(order) == set(np.arange(len(pro_player.classes))):
+                order = np.array(order)
+        else:
+            order = np.arange(len(pro_player.classes))
+    radius_list = radius_list[order]
+    width_list = width_list[order]
+    print(order)
     width_list = width_list/np.sum(width_list) * 2 * np.pi
     theta = np.cumsum(width_list)
     theta -= width_list/2
     ax = plt.subplot(111, projection='polar')
-    bars = ax.bar(theta, radius_list, width=width_list, bottom=0.0)
-    
-    # Use custom colors and opacity
-    for index, bar in enumerate(bars):
-        bar.set_facecolor(pro_player.class_colors[index])
-        bar.set_alpha(0.5)
+    bars = ax.bar(theta, radius_list, width = width_list, 
+                  bottom=-offset, edgecolor = (1, 0.9, 0.1, 1), 
+                  color = np.array(pro_player.class_colors)[order],
+                  tick_label = np.array(pro_player.classes)[order])
     
     plt.show()
     
-        
+def test(a):
+    if isinstance(a, list) and len(a) == 1:
+        print(1)
+    else:
+        print(2)
 ############
 ##html
 ############
@@ -188,17 +200,23 @@ def parse_page(index = 1):
     other_players = first_player.find_next_siblings()
     return [first_player] + other_players
 
-def main():
+def crawl(start_page = 1, crawl_pages = 50):
     player_list = player_db()
-    pages = 100
     
-    for index in range(1, 1+pages):
+    for index in range(start_page, start_page + crawl_pages):
         players = parse_page(index)
         for player in players:
             player_list.append(pro_player(player))
     return player_list
 
+def main():
+    db0 = crawl(1, 25) #first 25 pages, have completed ~2 classes
+    stats0 = db0.stats()
+    plot(stats0, order = 'radii')
+    db1 = crawl(25, 100) #first 25 pages, have completed ~2 classes
+    stats1 = db1.stats()
+    plot(stats1, order = 'radii')
+
 if __name__ == "__main__":
-#    main()
-    pass
-#    pl = main()
+    main()
+#    pass
